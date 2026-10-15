@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HO-CDI Daily Risk</title>
+<style>
+:root{--bg:#f5f7f6;--surface:#fff;--ink:#18211e;--muted:#5b6863;--line:#d9e1de;--accent:#1f6f5c;--low:#2f7d4f;--mid:#b07d14;--high:#b23a2e;--lowbg:#e6f2ea;--midbg:#f8efd9;--highbg:#f8e3e0}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1513;--surface:#17201d;--ink:#e5ece9;--muted:#9aa8a2;--line:#2b3633;--accent:#5fbfa3;--low:#6cc28f;--mid:#e0b14f;--high:#ef7d70;--lowbg:#16301f;--midbg:#33280f;--highbg:#3a1a16;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:20px 16px 40px}
+.wrap{max-width:780px;margin:0 auto;display:grid;gap:16px}
+h1{font-size:1.6rem;margin:0;line-height:1.2}
+p.sub{margin:6px 0 0;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.res{position:sticky;top:0;z-index:2;display:grid;gap:8px}
+.range{font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums}
+.band{border-radius:8px;padding:6px 10px;font-weight:600;display:inline-block}
+.band.low{background:var(--lowbg);color:var(--low)}.band.mid{background:var(--midbg);color:var(--mid)}.band.high{background:var(--highbg);color:var(--high)}
+.models{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;font-variant-numeric:tabular-nums}
+.models div{border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.models b{display:block}
+.row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row label{font-weight:500}
+.row small{color:var(--muted);display:block;font-weight:400}
+input[type=number]{width:6.5em;font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+.pair{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.pair span{font-size:.8rem;color:var(--muted);display:block}
+select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.toggle{display:flex;align-items:center;gap:10px;font-weight:600}
+.toggle input{width:22px;height:22px;accent-color:var(--accent)}
+h2{font-size:1.1rem;margin:0 0 4px}
+.note{color:var(--muted);font-size:.88rem}
+.warn{border-left:3px solid var(--mid);padding-left:10px}
+.hidden{display:none}
+.lvl{font-size:.8rem;color:var(--muted);text-align:right}
+</style></head><body><div class="wrap">
+<header><h1>Hospital-onset <i>C. difficile</i>: daily 48-hour risk</h1>
+<p class="sub">Enter today's values. The combined model and the ward or ICU model each give a risk; together they are the practical range. Research use only.</p></header>
+<section class="card res" aria-live="polite">
+  <div><span class="range" id="range">-</span> <span id="band" class="band low">-</span></div>
+  <div class="models" id="models"></div>
+  <div class="note" id="stoolnote"></div>
+</section>
+<section class="card"><label class="toggle"><input type="checkbox" id="icu"> Patient is in the ICU</label>
+<p class="note">Unticked: combined + ward models. Ticked: combined + ICU models, and the ICU variables (temperature, charted loose stools) switch on.</p></section>
+<section class="card" id="common"><h2>Patient and course</h2></section>
+<section class="card" id="labs"><h2>Laboratory values (today and comparison)</h2><p class="note">Leave blank if not measured.</p></section>
+<section class="card hidden" id="icusec"><h2>ICU variables (last 24 h)</h2></section>
+<section class="card" id="stoolsec"><h2>Stools (pre-test probability)</h2></section>
+<section class="card"><h2>Model performance (held-out 20% of patients)</h2><div id="perf" class="note"></div>
+<p class="note warn">Developed and internally validated in MIMIC-IV (one hospital). Not externally validated; not a substitute for clinical judgement or testing guidelines. Test only patients with new, unexplained diarrhoea (&ge; 3 unformed stools in 24 h).</p></section>
+</div>
+<script>
+const C = {"items":[{"id":"day","label":"Hospital day","kind":"num","cuts":[4,7],"levels":["2-3","4-6","7 or later"],"na":false,"js":"raw","icu_only":false},{"id":"icu_now","label":"In ICU now (combined model only; set by the ICU tick box)","kind":"bin","cuts":[],"levels":["No","Yes"],"na":false,"js":"bin","icu_only":false},{"id":"age","label":"Age, years","kind":"num","cuts":[65,80],"levels":["\u003c 65","65-79",">= 80"],"na":false,"js":"raw","icu_only":false},{"id":"abx_total","label":"Antibiotic days this admission","kind":"num","cuts":[1,4,8],"levels":["0","1-3","4-7",">= 8"],"na":false,"js":"raw","icu_only":false},{"id":"abx_recent","label":"Antibiotic days in the last 3 days","kind":"num","cuts":[1,3],"levels":["0","1-2","3"],"na":false,"js":"raw","icu_only":false},{"id":"abx_hr","label":"High-risk antibiotic so far (3rd/4th-gen cephalosporin, FQ, carbapenem, clindamycin)","kind":"bin","cuts":[],"levels":["No","Yes"],"na":false,"js":"bin","icu_only":false},{"id":"ppi","label":"PPI in the last 24 h","kind":"bin","cuts":[],"levels":["No","Yes"],"na":false,"js":"bin","icu_only":false},{"id":"h2","label":"H2 blocker in the last 24 h","kind":"bin","cuts":[],"levels":["No","Yes"],"na":false,"js":"bin","icu_only":false},{"id":"enteral","label":"Enteral (tube) feeding","kind":"bin","cuts":[],"levels":["No","Yes"],"na":false,"js":"bin","icu_only":false},{"id":"chemo","label":"Cancer chemotherapy (now or prior 180 days)","kind":"bin","cuts":[],"levels":["No","Yes"],"na":false,"js":"bin","icu_only":false},{"id":"prior_tests","label":"C. difficile tests in the prior year","kind":"num","cuts":[1,2],"levels":["0","1",">= 2"],"na":false,"js":"raw","icu_only":false},{"id":"last_dc","label":"Time since last hospital discharge","kind":"num","cuts":[30,90],"levels":["\u003c 30 days","30-89 days",">= 90 days or never"],"na":false,"js":"raw","icu_only":false},{"id":"wbc","label":"WBC today, K/uL","kind":"num","cuts":[4,11,15],"levels":["\u003c 4","4-10.9","11-14.9",">= 15","Not measured"],"na":true,"js":"raw","icu_only":false},{"id":"wbc_rise","label":"WBC rise over the last 24 h, K/uL","kind":"num","cuts":[2],"levels":["\u003c 2",">= 2"],"na":false,"js":"diff","icu_only":false},{"id":"creat","label":"Creatinine today, mg/dL","kind":"num","cuts":[1.5],"levels":["\u003c 1.5",">= 1.5","Not measured"],"na":true,"js":"raw","icu_only":false},{"id":"creat_rise","label":"Creatinine rise over the last 24 h, mg/dL","kind":"num","cuts":[0.3],"levels":["\u003c 0.3",">= 0.3"],"na":false,"js":"diff","icu_only":false},{"id":"bicarb_fall","label":"Bicarbonate fall since admission, mEq/L","kind":"num","cuts":[4],"levels":["\u003c 4",">= 4"],"na":false,"js":"neg_diff","icu_only":false},{"id":"k","label":"Potassium today, mEq/L","kind":"num","cuts":[3.5],"levels":["\u003c 3.5",">= 3.5","Not measured"],"na":true,"js":"raw","icu_only":false},{"id":"hb","label":"Haemoglobin today, g/dL","kind":"num","cuts":[10],"levels":["\u003c 10",">= 10","Not measured"],"na":true,"js":"raw","icu_only":false},{"id":"tmax","label":"Maximum temperature, last 24 h, deg C","kind":"num","cuts":[38,39],"levels":["\u003c 38","38-38.9",">= 39","Not measured"],"na":true,"js":"raw","icu_only":true},{"id":"loose","label":"Loose stools charted, last 24 h","kind":"num","cuts":[1,3],"levels":["0","1-2",">= 3"],"na":false,"js":"raw","icu_only":true}],"models":{"combined":{"label":"Combined","a":-10.30044,"b":0.18857,"max_points":48,"auc":0.737,"auc_lo":0.684,"auc_hi":0.792,"stool_adjust":true,"pts":{"day":[1,2,0],"icu_now":[0,2],"age":[0,0,3],"abx_total":[0,1,2,3],"abx_recent":[0,0,1],"abx_hr":[0,1],"ppi":[0,3],"h2":[0,2],"enteral":[0,3],"chemo":[0,4],"prior_tests":[0,2,5],"last_dc":[0,1,0],"wbc":[3,0,3,5,2],"wbc_rise":[0,2],"creat":[2,4,0],"creat_rise":[0,1],"bicarb_fall":[0,2],"k":[4,2,0],"hb":[0,0,0]},"cuts":[{"rule":"Rule-out (sensitivity >= 80% in training)","cut":13,"sens":75,"spec":58,"ppv":0.09,"npv":99.98},{"rule":"Youden (training)","cut":14,"sens":68,"spec":65,"ppv":0.1,"npv":99.97},{"rule":"High risk (top 10% in training)","cut":20,"sens":33,"spec":92,"ppv":0.23,"npv":99.96}]},"ward":{"label":"Ward","a":-10.41119,"b":0.25105,"max_points":36,"auc":0.72,"auc_lo":0.648,"auc_hi":0.773,"stool_adjust":true,"pts":{"day":[2,1,0],"icu_now":[0,0],"age":[0,1,3],"abx_total":[0,0,2,2],"abx_recent":[0,0,0],"abx_hr":[0,1],"ppi":[0,3],"h2":[0,1],"enteral":[0,1],"chemo":[0,3],"prior_tests":[0,3,5],"last_dc":[0,0,0],"wbc":[3,0,2,4,2],"wbc_rise":[0,2],"creat":[1,3,0],"creat_rise":[0,1],"bicarb_fall":[0,2],"k":[3,1,0],"hb":[0,0,0]},"cuts":[{"rule":"Rule-out (sensitivity >= 80% in training)","cut":9,"sens":75,"spec":53,"ppv":0.07,"npv":99.98},{"rule":"Youden (training)","cut":11,"sens":58,"spec":72,"ppv":0.1,"npv":99.97},{"rule":"High risk (top 10% in training)","cut":15,"sens":27,"spec":93,"ppv":0.18,"npv":99.96}]},"icu":{"label":"ICU","a":-9.91754,"b":0.22436,"max_points":32,"auc":0.735,"auc_lo":0.605,"auc_hi":0.818,"stool_adjust":false,"pts":{"day":[0,2,2],"icu_now":[0,0],"age":[0,0,1],"abx_total":[0,2,2,3],"abx_recent":[0,0,2],"abx_hr":[0,0],"ppi":[0,1],"h2":[0,0],"enteral":[0,3],"chemo":[0,1],"prior_tests":[0,0,0],"last_dc":[3,5,0],"wbc":[1,0,1,3,0],"wbc_rise":[0,0],"creat":[0,2,0],"creat_rise":[0,0],"bicarb_fall":[0,1],"k":[0,0,0],"hb":[0,2,0],"tmax":[0,3,3,3],"loose":[3,3,0]},"cuts":[{"rule":"Rule-out (sensitivity >= 80% in training)","cut":13,"sens":87,"spec":54,"ppv":0.19,"npv":99.98},{"rule":"Youden (training)","cut":14,"sens":77,"spec":63,"ppv":0.21,"npv":99.96},{"rule":"High risk (top 10% in training)","cut":19,"sens":23,"spec":93,"ppv":0.32,"npv":99.92}]}},"lr_pos":0.8,"lr_neg":1.02,"lr_note":"Estimated from 149 ICU patient-days with an event: >= 3 loose stools in 7% of event days vs 8% of other days.","loose_cut":3,"prev":0.00053};
+const $ = id => document.getElementById(id);
+const FIELDS = {
+  day:{t:"num",ph:"e.g. 5",min:2},
+  age:{t:"num",ph:"years"},
+  abx_total:{t:"num",ph:"days"},
+  abx_recent:{t:"num",ph:"0-3",max:3},
+  abx_hr:{t:"bin"}, ppi:{t:"bin"}, h2:{t:"bin"}, enteral:{t:"bin"}, chemo:{t:"bin"},
+  prior_tests:{t:"num",ph:"tests"},
+  last_dc:{t:"sel",opts:[["9999","Never / 90 days or more"],["60","30-89 days"],["10","Less than 30 days"]]},
+  wbc:{t:"num",sec:"labs",ph:"today"},
+  wbc_rise:{t:"prev",sec:"labs",base:"wbc",b:"WBC 24 h ago"},
+  creat:{t:"num",sec:"labs",ph:"today"},
+  creat_rise:{t:"prev",sec:"labs",base:"creat",b:"Creatinine 24 h ago"},
+  bicarb_fall:{t:"pair",sec:"labs",a:"Bicarbonate today",b:"Bicarbonate on admission"},
+  k:{t:"num",sec:"labs",ph:"today"}, hb:{t:"num",sec:"labs",ph:"today"},
+  tmax:{t:"num",sec:"icusec",ph:"deg C"},
+  loose:{t:"num",sec:"icusec",ph:"count"}
+};
+const ITEMS = Object.fromEntries(C.items.map(i => [i.id, i]));
+function row(sec, id, label, ctrl){ const r=document.createElement("div"); r.className="row";
+  r.innerHTML=`<label for="${id}">${label}<small id="lv-${id}"></small></label><div>${ctrl}</div>`; $(sec).appendChild(r); }
+for (const it of C.items){ const f=FIELDS[it.id]; if(!f) continue; const sec=f.sec||"common"; let ctrl="";
+  if(f.t==="bin") ctrl=`<select id="${it.id}"><option value="0">No</option><option value="1">Yes</option></select>`;
+  else if(f.t==="sel") ctrl=`<select id="${it.id}">${f.opts.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join("")}</select>`;
+  else if(f.t==="prev") ctrl=`<div class="pair"><div><span>${f.b}</span><input type="number" step="any" id="${it.id}_b"></div></div>`;
+  else if(f.t==="pair") ctrl=`<div class="pair"><div><span>${f.a}</span><input type="number" step="any" id="${it.id}_a"></div><div><span>${f.b}</span><input type="number" step="any" id="${it.id}_b"></div></div>`;
+  else ctrl=`<input type="number" step="any" id="${it.id}" placeholder="${f.ph||""}">`;
+  if (it.id==="wbc_rise"||it.id==="creat_rise"||it.id==="bicarb_fall") row(sec,it.id,it.label,ctrl); else row(sec,it.id,it.label,ctrl);
+}
+row("stoolsec","stools","Unformed / loose stools in the last 24 h (as observed)",`<input type="number" step="1" min="0" id="stools" placeholder="count">`);
+function val(id){ const e=$(id); if(!e||e.value==="") return null; const v=parseFloat(e.value); return isNaN(v)?null:v; }
+function inputValue(it){
+  if (it.js==="diff"||it.js==="neg_diff"){ const f=FIELDS[it.id]||{}; const a=val(f.base? f.base : it.id+"_a"), b=val(it.id+"_b"); if(a===null||b===null) return null; return it.js==="diff"? a-b : b-a; }
+  if (it.id==="icu_now") return $("icu").checked ? 1 : 0;
+  if (it.id==="loose" && !$("icu").checked) return null;
+  return val(it.id);
+}
+function level(it, x){ // returns 0-based level index
+  if (x===null){ if (it.na) return it.levels.length-1; x = (it.id==="last_dc")?9999:0; }
+  if (it.kind==="bin") return x>0?1:0;
+  let k=0; for (const c of it.cuts) if (x>=c) k++; return k;
+}
+function sync(){ // ICU loose stools mirror the stool box
+  if ($("icu").checked && $("loose").value==="" && $("stools").value!=="") $("loose").value=$("stools").value;
+}
+const pct = p => (100*p).toFixed(p<0.01?2:1)+"%";
+function update(){
+  const icu=$("icu").checked; $("icusec").classList.toggle("hidden",!icu);
+  const lv={};
+  for (const it of C.items){ const x=inputValue(it); lv[it.id]=level(it,x); const el=$("lv-"+it.id); if(el) el.textContent=it.levels[lv[it.id]]; }
+  const loc = icu? "icu" : "ward"; const use=["combined",loc].filter(m=>C.models[m]);
+  const stools=val("stools"); let lr=1, stooltxt="";
+  if (stools!==null){ lr = stools>=C.loose_cut? C.lr_pos : C.lr_neg; }
+  const out=[];
+  for (const m of use){ const M=C.models[m]; let pts=0;
+    for (const [id,arr] of Object.entries(M.pts)){ if(lv[id]===undefined) continue; pts+=arr[lv[id]]||0; }
+    let p=1/(1+Math.exp(-(M.a+M.b*pts)));
+    let adj=false; if (M.stool_adjust && stools!==null && lr && isFinite(lr)){ const o=p/(1-p)*lr; p=o/(1+o); adj=true; }
+    out.push({m,label:M.label,pts,max:M.max_points,p,adj,auc:M.auc});
+  }
+  $("models").innerHTML = out.map(o=>`<div><b>${o.label} model</b>${o.pts} / ${o.max} points &rarr; <b>${pct(o.p)}</b>${o.adj?'<span class="note"> (stool-adjusted)</span>':''}</div>`).join("");
+  const ps=out.map(o=>o.p); const lo=Math.min(...ps), hi=Math.max(...ps);
+  $("range").textContent = out.length>1? `${pct(lo)} - ${pct(hi)}` : pct(lo);
+  const mid=(lo+hi)/2, b=$("band");
+  const [cls,txt] = mid>=3*C.prev? ["high","High risk"] : mid>=C.prev? ["mid","Intermediate risk"] : ["low","Low risk"];
+  b.className="band "+cls; b.textContent=txt+" (48 h)";
+  let note=`Average risk per patient-day in this cohort: ${pct(C.prev)}. `;
+  if (stools===null) note += "Enter the number of loose stools to apply the pre-test adjustment.";
+  else if (stools<C.loose_cut && !icu) note += `Fewer than ${C.loose_cut} loose stools: low pre-test probability; testing is not recommended unless diarrhoea develops.`;
+  else if (stools<C.loose_cut && icu) note += `Fewer than ${C.loose_cut} loose stools, but in the ICU risk stays relevant (NAAT alone qualifies when stool output is not documented).`;
+  else note += `${C.loose_cut} or more loose stools: pre-test probability raised.`;
+  note += ` Stool likelihood ratios (LR+ ${C.lr_pos}, LR- ${C.lr_neg}) are estimated from ICU charting and assumed to apply on the ward. ${C.lr_note}`;
+  $("stoolnote").textContent = note;
+}
+$("perf").innerHTML = Object.values(C.models).map(M=>`<b>${M.label}</b>: AUROC ${M.auc} (95% CI ${M.auc_lo}-${M.auc_hi}); ${M.max_points} points maximum.<br>`+
+  M.cuts.map(k=>`&nbsp;&nbsp;&ge; ${k.cut} points (${k.rule}): sensitivity ${k.sens}%, specificity ${k.spec}%, PPV ${k.ppv}%, NPV ${k.npv}%`).join("<br>")).join("<br>") +
+  "<br>Per patient-day, outcome = positive test in the next 48 h; cut-offs chosen on training data, metrics on the held-out test set.";
+document.addEventListener("input", ()=>{ sync(); update(); });
+document.addEventListener("change", ()=>{ sync(); update(); });
+update();
+</script></body></html>
