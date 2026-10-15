@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light dark}body{margin:0;font:14px system-ui,sans-serif}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>HO-CDI Bedside Score</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: a one-column clinical form card; the running total sits in a sticky band so the score is always in view */
+:root {
+  --bg: #f5f7f6; --surface: #ffffff; --ink: #18211e; --muted: #5b6863; --line: #d9e1de;
+  --accent: #1f6f5c; --low: #2f7d4f; --mid: #b07d14; --high: #b23a2e;
+  --low-bg: #e6f2ea; --mid-bg: #f8efd9; --high-bg: #f8e3e0;
+  --display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1513; --surface: #17201d; --ink: #e5ece9; --muted: #9aa8a2; --line: #2b3633;
+  --accent: #5fbfa3; --low: #6cc28f; --mid: #e0b14f; --high: #ef7d70;
+  --low-bg: #16301f; --mid-bg: #33280f; --high-bg: #3a1a16; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1513; --surface: #17201d; --ink: #e5ece9; --muted: #9aa8a2; --line: #2b3633;
+  --accent: #5fbfa3; --low: #6cc28f; --mid: #e0b14f; --high: #ef7d70;
+  --low-bg: #16301f; --mid-bg: #33280f; --high-bg: #3a1a16; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; }
+.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 18px; }
+header h1 { font-family: var(--display); font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0; text-wrap: balance; line-height: 1.15; }
+header p { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.total { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px 16px; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; }
+.score { font-family: var(--mono); font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.score small { font-size: 1rem; color: var(--muted); }
+.band { border-radius: 8px; padding: 8px 12px; font-weight: 600; }
+.band span { display: block; font-weight: 400; font-size: .9rem; }
+.band.low { background: var(--low-bg); color: var(--low); } .band.mid { background: var(--mid-bg); color: var(--mid); } .band.high { background: var(--high-bg); color: var(--high); }
+.meter { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--low) 0 23%, var(--mid) 23% 42%, var(--high) 42% 100%); position: relative; }
+.meter i { position: absolute; top: -4px; width: 4px; height: 16px; background: var(--ink); border-radius: 2px; transform: translateX(-2px); transition: left .2s; }
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+form { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+fieldset { border: 0; margin: 0; padding: 12px 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+fieldset:first-child { border-top: 0; }
+legend { padding: 0; font-weight: 600; display: contents; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.row .lbl { font-weight: 600; }
+.opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.opts label { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: .95rem; display: inline-flex; gap: 6px; align-items: center; }
+.opts input { accent-color: var(--accent); margin: 0; }
+.opts label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.opts input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pts { font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+button { font: inherit; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.perf { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.perf h2 { font-family: var(--display); font-size: 1.2rem; margin: 0 0 8px; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: .95rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
+.note { color: var(--muted); font-size: .88rem; max-width: 70ch; }
+.warn { border-left: 3px solid var(--mid); padding-left: 10px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Hospital-onset <i>C. difficile</i> bedside score</h1>
+    <p>Twelve routinely recorded items, scored 48 h before a <i>C. difficile</i> test is considered. Developed in MIMIC-IV (adults, ICU and wards); internally validated on a held-out 20% of patients.</p>
+  </header>
+
+  <div class="total" aria-live="polite">
+    <div class="score"><span id="score">0</span><small> / 26</small></div>
+    <div id="band" class="band low">Low risk<span></span></div>
+    <div class="meter"><i id="marker" style="left:0%"></i></div>
+  </div>
+
+  <form id="f"></form>
+  <div class="actions">
+    <button type="button" id="reset">Clear all</button>
+    <button type="button" id="example">Load example patient</button>
+  </div>
+
+  <section class="perf">
+    <h2>Performance in the held-out test set</h2>
+    <p class="note">AUROC 0.82 (95% CI 0.77&ndash;0.87). CDI prevalence 0.18%.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Group</th><th>Score</th><th>Observed CDI</th><th>Sensitivity</th><th>Specificity</th><th>PPV</th><th>NPV</th></tr></thead>
+      <tbody>
+        <tr><td>Low</td><td>0&ndash;5</td><td>0.05%</td><td colspan="4">&ndash;</td></tr>
+        <tr><td>Intermediate</td><td>6&ndash;10</td><td>0.21%</td><td>82% (&ge; 6)</td><td>63%</td><td>0.4%</td><td>99.95%</td></tr>
+        <tr><td>High</td><td>&ge; 11</td><td>1.04%</td><td>50% (&ge; 11)</td><td>91%</td><td>1.0%</td><td>99.90%</td></tr>
+      </tbody></table></div>
+    <p class="note warn">Research use only. Not externally validated and not a substitute for clinical judgement or testing guidelines. Low PPV reflects the low prevalence of hospital-onset CDI.</p>
+  </section>
+</div>
+
+<script>
+const ITEMS = [
+  { id: "abx", label: "Antibiotic days this admission", opts: [["0", 0], ["1–3", 1], ["4–7", 4], ["≥ 8", 5]] },
+  { id: "ppi", label: "Proton pump inhibitor", opts: [["No", 0], ["Yes", 2]] },
+  { id: "hgb", label: "Haemoglobin < 12 g/dL", opts: [["No / not measured", 0], ["Yes", 1]] },
+  { id: "cdt", label: "C. difficile tests in the prior year", opts: [["0", 0], ["1", 1], ["≥ 2", 3]] },
+  { id: "icu", label: "Currently in ICU", opts: [["No", 0], ["Yes", 2]] },
+  { id: "age", label: "Age ≥ 80 years", opts: [["No", 0], ["Yes", 2]] },
+  { id: "vanc", label: "IV vancomycin", opts: [["No", 0], ["Yes", 1]] },
+  { id: "ent", label: "Enteral feeding (tube feeds)", opts: [["No", 0], ["Yes", 3]] },
+  { id: "cci", label: "Charlson comorbidity index ≥ 3", opts: [["No", 0], ["Yes", 1]] },
+  { id: "h2", label: "H2-receptor blocker", opts: [["No", 0], ["Yes", 1]] },
+  { id: "fq", label: "Fluoroquinolone", opts: [["No", 0], ["Yes", 2]] },
+  { id: "chemo", label: "Cancer chemotherapy", opts: [["No", 0], ["Yes", 3]] },
+];
+const EXAMPLE = { abx: 2, ppi: 1, hgb: 1, cdt: 0, icu: 0, age: 1, vanc: 1, ent: 0, cci: 1, h2: 0, fq: 0, chemo: 0 };
+const form = document.getElementById("f");
+for (const it of ITEMS) {
+  const fs = document.createElement("fieldset");
+  fs.innerHTML = `<legend></legend><div class="row"><span class="lbl">${it.label}</span><span class="pts" id="p-${it.id}">0 pts</span></div><div class="opts"></div>`;
+  const box = fs.querySelector(".opts");
+  it.opts.forEach(([t, p], k) => {
+    const lab = document.createElement("label");
+    lab.innerHTML = `<input type="radio" name="${it.id}" id="${it.id}-${k}" value="${p}" ${k === 0 ? "checked" : ""}> ${t} <span class="pts">${p ? "+" + p : "0"}</span>`;
+    box.appendChild(lab);
+  });
+  form.appendChild(fs);
+}
+function update() {
+  let s = 0;
+  for (const it of ITEMS) {
+    const v = +(form.querySelector(`input[name="${it.id}"]:checked`)?.value || 0);
+    s += v; document.getElementById("p-" + it.id).textContent = v + " pts";
+  }
+  document.getElementById("score").textContent = s;
+  const band = document.getElementById("band");
+  const [cls, name, txt] = s >= 11 ? ["high", "High risk", "Observed CDI 1.04% (21× low group)"]
+    : s >= 6 ? ["mid", "Intermediate risk", "Observed CDI 0.21%"] : ["low", "Low risk", "Observed CDI 0.05%; NPV 99.95%"];
+  band.className = "band " + cls; band.firstChild.textContent = name; band.querySelector("span").textContent = txt;
+  document.getElementById("marker").style.left = (s / 26 * 100) + "%";
+}
+function setAll(vals) { for (const it of ITEMS) { const k = vals[it.id] || 0; document.getElementById(`${it.id}-${k}`).checked = true; } update(); }
+form.addEventListener("change", update);
+document.getElementById("reset").onclick = () => setAll({});
+document.getElementById("example").onclick = () => setAll(EXAMPLE);
+setAll(EXAMPLE);
+</script>
+
+</body>
+</html>
